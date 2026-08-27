@@ -1,199 +1,312 @@
-# Twaq | Behavioral Biometrics Dashboard
+# Behavior
 
-Twaq is a Flutter dashboard for monitoring and analyzing mouse and keyboard behavioral biometrics. It is designed to work with a Python/Flask service that collects input events, analyzes behavioral patterns, and exposes trust indicators through a REST API.
+Behavior is a behavioral-biometrics system with a Flutter dashboard and a Python/Flask backend. The system records mouse and keyboard interaction patterns, extracts measurable behavioral features, trains anomaly-detection models, and displays live trust indicators and historical information.
 
-> **Repository status:** This repository currently contains the Flutter client and its API call sites. It does not contain the Python/Flask implementation, `backend_api.py`, or `requirements.txt`. The backend must be supplied separately before the complete system can run end to end.
+## Repository Status
 
-## Overview
+The working project currently contains two directories:
 
-The application treats mouse and keyboard interaction patterns as a behavioral signature. The backend is expected to collect input events, extract behavioral features, analyze them, and return biometric indicators. Flutter renders those results in a security dashboard; it does not collect input events itself.
+- `twaq/`: the actual Flutter application and its native platform wrappers.
+- `twayq/`: Python project metadata and the backend source files currently stored inside `__pycache__/`.
 
-The client provides four views:
+The Python files are real text source files, not normal compiled cache files, even though they are located in a directory normally reserved for Python bytecode. They import one another using top-level module names, so the backend should be launched from the directory containing those files, or the files should later be moved into a normal backend source directory. This README documents the current layout without changing it.
 
-- **Dashboard:** live mouse match, keyboard match, overall trust, connection status, and system controls.
-- **Analytics:** historical mouse-speed and typing-intensity charts and biometric averages.
-- **History:** recent monitoring events, severity, individual scores, and session average.
-- **Settings:** live-monitoring control and periodic security notifications.
-
-## Architecture
+## System Overview
 
 ```text
-Flutter client (twaq/lib/*.dart)
-        | HTTP/JSON on port 5000
-        v
-Python/Flask backend (not included in this repository)
-        |
-        +-- input-event collection
-        +-- feature extraction and analysis
-        +-- training
-        +-- live monitoring and history
+Mouse events ───────> MouseAuthenticator ──┐
+                                           ├──> Flask REST API ───> Flutter dashboard
+Keyboard events ───> KeyboardAuthenticator ┘
+                                               ├──> JSON data files
+                                               └──> IsolationForest models
 ```
 
-The client currently uses `http://127.0.0.1:5000` as a fixed base URL. Each page contains its own request code, so changing the address currently requires changes in multiple Dart files.
+The backend collects input events with `pynput`. It divides the data into time windows, converts each window into numerical features, trains an `IsolationForest` model, and classifies later sessions as normal or anomalous. The Flutter app does not capture input directly; it calls the backend over HTTP and renders the returned JSON.
 
-## Repository Structure
+## Complete Repository Structure
 
 ```text
 .
 ├── README.md
-├── twaq/                              # Actual Flutter application
+├── twaq/                                  # Flutter frontend
 │   ├── lib/
-│   │   ├── main.dart                  # Entry point and dashboard
-│   │   ├── analytics_page.dart        # Analytics and charts
-│   │   ├── history_page.dart          # Monitoring history
-│   │   ├── settings_page.dart         # Settings and alerts
-│   │   └── custom_widgets.dart        # Shared UI widgets
-│   ├── pubspec.yaml                   # Flutter package manifest
-│   ├── pubspec.lock                   # Resolved Dart versions
-│   ├── analysis_options.yaml          # Lint configuration
-│   ├── android/                       # Android host project
-│   ├── ios/                           # iOS host project
-│   ├── linux/                         # Linux host project
-│   ├── macos/                         # macOS host project
-│   ├── web/                           # Web entry point and PWA files
-│   └── windows/                       # Windows host project
-└── twayq/                             # IDE metadata only
-    └── .idea/                         # PyCharm/IntelliJ settings
+│   │   ├── main.dart
+│   │   ├── analytics_page.dart
+│   │   ├── history_page.dart
+│   │   ├── settings_page.dart
+│   │   └── custom_widgets.dart
+│   ├── pubspec.yaml
+│   ├── pubspec.lock
+│   ├── analysis_options.yaml
+│   ├── android/                            # Android host and Gradle files
+│   ├── ios/                                # iOS Xcode host project
+│   ├── linux/                              # Linux GTK/CMake host project
+│   ├── macos/                              # macOS Xcode host project
+│   ├── web/                                # Browser/PWA files
+│   └── windows/                            # Windows Win32/CMake host project
+└── twayq/                                  # Python backend project metadata
+    ├── .idea/                              # PyCharm/IntelliJ settings
+    └── __pycache__/                        # Current location of Python sources
+        ├── backend_api.py
+        ├── mouse_biometrics.py
+        ├── keyboard_biometrics.py
+        └── main.py
 ```
 
-## Detailed File Guide
+Generated build folders, `.venv`, binary icon assets, and `.pyc` files are not application source and are not described as logic below.
 
-### Application Source: `twaq/lib/`
+## Flutter Frontend Files
 
-#### `main.dart`
+### `twaq/lib/main.dart`
 
-The Flutter entry point. It launches the app, configures the dark Material theme, creates the dashboard, stores live biometric values, polls `GET /status` every 4 seconds, and sends control commands. It also builds the sidebar navigation and switches between the four application views. `WavyGraphPainter` draws the decorative dashboard background, while `dart:io` is used to exit the application from the logout icon.
+This is the Flutter entry point and the main dashboard controller.
 
-#### `analytics_page.dart`
+- `main()` starts `AdvancedBiometricApp`.
+- `AdvancedBiometricApp` creates a dark Material application with `ProfessionalDashboard` as its home page.
+- `_ProfessionalDashboardState` stores mouse match, keyboard match, overall trust, status text, monitoring state, and the selected sidebar page.
+- A timer requests `GET http://127.0.0.1:5000/status` every 4 seconds.
+- The response fields used are `mouse_perc`, `kb_perc`, `overall`, `status_msg`, and `is_monitoring`.
+- `sendCommand()` sends `POST` requests for collection, training, and monitoring operations, then refreshes the status.
+- The sidebar switches between dashboard, analytics, history, and settings.
+- The logout icon calls `exit(0)` through `dart:io`.
+- `WavyGraphPainter` draws two decorative filled paths behind the dashboard content.
 
-Implements `AnalyticsPage`. It requests `GET /analytics` on startup and every 10 seconds. It converts `mouse_chart` and `kb_chart` arrays into `FlSpot` values for `fl_chart`, then reads `stats` values for average mouse speed, movement angle, typing speed, and key dwell time. The user dropdown is local UI state only; the selected user is not sent to the backend.
+Dashboard commands are `collect/start`, `collect/stop`, `train`, and `monitor/toggle`.
 
-#### `history_page.dart`
+### `twaq/lib/analytics_page.dart`
 
-Implements `HistoryPage`. It requests `GET /history` on startup and every 3 seconds, stores the returned log array, calculates the average `overall` value, and renders event cards. Each event is expected to contain `time`, `mouse`, `keyboard`, `overall`, and `severity`. Severity values are mapped to colors and icons.
+`AnalyticsPage` displays historical behavioral metrics.
 
-#### `settings_page.dart`
+- Calls `GET /analytics` immediately and every 10 seconds.
+- Converts `mouse_chart` and `kb_chart` arrays into `FlSpot` objects.
+- Displays one line chart for mouse speed and one for keyboard activity.
+- Reads `stats.avg_mouse_speed`, `stats.avg_angle`, `stats.avg_typing_speed`, and `stats.avg_dwell_time`.
+- Uses `CustomLineChart` and `StatCard` from `custom_widgets.dart`.
+- Provides a dropdown containing `Admin (الحالي)`, `User 1`, and `Guest`.
 
-Implements `SettingsPage`. It reads monitoring state from `GET /status`, toggles monitoring through `POST /monitor/toggle`, and rolls the switch back if the request fails. An optional timer checks the status every minute and displays a warning when the average of `mouse_perc` and `kb_perc` is below 50% while monitoring is active. Timers are cancelled when the page is disposed.
+The dropdown currently changes local UI state only. It is not sent to Flask and does not filter the returned data.
 
-#### `custom_widgets.dart`
+### `twaq/lib/history_page.dart`
 
-Contains presentation-only reusable widgets: `CircularMetricCard`, `StatCard`, `SideMenuItem`, `ActionButton`, `CustomLineChart`, and `SettingsSection`. These widgets do not call the backend and do not perform biometric analysis.
+`HistoryPage` displays recent security-monitoring events.
 
-### Flutter Configuration
+- Calls `GET /history` immediately and every 3 seconds.
+- Stores the returned array in `historyLogs`.
+- Calculates the average `overall` value for the returned entries.
+- Renders each entry with time, mouse percentage, keyboard percentage, and severity.
+- Maps `عادية`, `متوسطة`, and other severity values to colors and icons.
+- Shows an empty state when the backend returns no events.
 
-#### `pubspec.yaml`
+Each history object is expected to contain `time`, `mouse`, `keyboard`, `overall`, and `severity`.
 
-Defines the Flutter package as `twaq`, version `0.1.0`, with Dart constraint `^3.10.7`. It declares Flutter, `fl_chart`, `flutter_test`, `flutter_lints`, and `http`. The `http` package is currently under `dev_dependencies` even though runtime application files import it; it should normally be under `dependencies`.
+### `twaq/lib/settings_page.dart`
 
-#### `pubspec.lock`
+`SettingsPage` manages monitoring and client-side warnings.
 
-Generated lockfile containing resolved direct and transitive Dart package versions. It should be regenerated by Flutter tooling rather than edited manually.
+- Reads the initial monitoring state from `GET /status`.
+- Toggles the backend through `POST /monitor/toggle`.
+- Updates the switch immediately and rolls it back when the request fails.
+- Optionally checks security status every minute.
+- Calculates `(mouse_perc + kb_perc) / 2` locally.
+- Shows a warning when that average is below 50% while backend monitoring is active.
+- Cancels the timer in `dispose()`.
 
-#### `analysis_options.yaml`
+The notification preference is held only in memory and is not persisted.
 
-Enables the standard lint rules from `package:flutter_lints/flutter.yaml`.
+### `twaq/lib/custom_widgets.dart`
 
-#### `.gitignore`, `.metadata`, `.vscode/settings.json`, and the nested `README.md`
+This file contains reusable presentation components and no backend logic.
 
-These are project metadata and tooling files. `.gitignore` excludes generated output, `.metadata` stores Flutter tooling metadata, `.vscode/settings.json` stores a local CMake path, and the nested README is the default Flutter placeholder. The root README is the authoritative documentation.
+- `CircularMetricCard`: colored circular percentage card used by the dashboard.
+- `StatCard`: compact metric card with an icon, value, and unit.
+- `SideMenuItem`: sidebar icon with active/inactive coloring.
+- `ActionButton`: icon and label button used for backend commands.
+- `CustomLineChart`: shared `fl_chart` line chart configuration.
+- `SettingsSection`: styled grouping container for settings controls.
 
-## Platform Files
+## Python Backend Files
 
-### Android: `twaq/android/`
+### `twayq/__pycache__/mouse_biometrics.py`
 
-- `settings.gradle.kts` loads Flutter's Gradle build, declares Android/Kotlin plugin versions, and includes the `app` module.
-- `build.gradle.kts` configures repositories, relocates the build directory, and defines the clean task.
-- `app/build.gradle.kts` configures namespace and application ID `com.example.twaq`, Java/Kotlin 17, Flutter SDK values, and build types.
-- `app/src/main/kotlin/com/example/twaq/MainActivity.kt` hosts the Flutter engine in the native Android activity.
-- `app/src/main/AndroidManifest.xml` declares the application, launcher activity, Flutter embedding, and Android queries.
-- `app/src/debug/AndroidManifest.xml` and `app/src/profile/AndroidManifest.xml` provide debug/profile manifest overlays.
-- `app/src/main/res/drawable*/launch_background.xml` define launch backgrounds for supported API levels.
-- `app/src/main/res/values*/styles.xml` define normal and night launch themes.
-- `gradle.properties` and `gradle/wrapper/gradle-wrapper.properties` configure Gradle behavior and the wrapper distribution.
+Defines `MouseAuthenticator`, which records and analyzes mouse behavior.
 
-### iOS: `twaq/ios/`
+#### Recording
 
-- `Runner/AppDelegate.swift` starts the iOS application and Flutter integration.
-- `Runner/Info.plist` defines bundle metadata, supported orientations, launch storyboard, and input support.
-- `Runner/Runner-Bridging-Header.h` provides Swift/Objective-C interoperability.
-- `Runner/Base.lproj/*.storyboard` define the launch and main storyboard resources.
-- `Runner/Assets.xcassets/` contains application icon and launch assets.
-- `Runner.xcodeproj/` and `Runner.xcworkspace/` contain Xcode project and workspace definitions.
-- `Flutter/*.xcconfig` and `AppFrameworkInfo.plist` provide Flutter build configuration and framework metadata.
-- `RunnerTests/RunnerTests.swift` is the native iOS test target placeholder.
+- Uses `pynput.mouse.Listener` to capture movement, click, and scroll events.
+- Stores timestamps, coordinates, event types, button names, press states, and scroll deltas in `current_session_data`.
+- `start_recording()` prevents duplicate listeners and starts a new session.
+- `stop_recording(save_to_file=True)` stops the listener and appends collected events to `mouse_data.json`.
+- Existing JSON data is loaded before new events are appended.
 
-### macOS: `twaq/macos/`
+#### Feature extraction
 
-- `Runner/AppDelegate.swift` is the macOS application delegate.
-- `Runner/MainFlutterWindow.swift` creates the native window that hosts Flutter.
-- `Runner/Info.plist` contains macOS bundle metadata.
-- `Runner/Base.lproj/MainMenu.xib` defines the native menu and window resource.
-- `Runner/Configs/*.xcconfig` contain application, debug, release, and warning settings.
-- `Runner/*entitlements` declare capabilities for debug/profile and release builds.
-- `Runner/Assets.xcassets/` contains macOS icons.
-- `Runner.xcodeproj/`, `Runner.xcworkspace/`, and `Flutter/*` provide Xcode and Flutter build metadata.
-- `RunnerTests/RunnerTests.swift` is the native macOS test target placeholder.
+- `_extract_features()` sorts events by timestamp and groups them into 2-second windows.
+- Windows with six or fewer events are ignored.
+- `_analyze_chunk()` calculates five features per window:
+  1. Average movement speed.
+  2. Standard deviation of movement speed.
+  3. Average acceleration.
+  4. Click count.
+  5. Scroll count.
+- Speed is calculated as distance divided by elapsed time.
+- Acceleration is calculated as the change in speed divided by elapsed time.
 
-### Linux: `twaq/linux/`
+#### Training and verification
 
-- `CMakeLists.txt` configures the GTK application, binary name `twaq`, application ID `com.example.twaq`, GTK dependencies, installation bundle, and C++14 settings.
-- `runner/CMakeLists.txt` configures the native Linux runner target.
-- `runner/main.cc` creates `MyApplication` and starts the GTK application loop.
-- `runner/my_application.h` and `my_application.cc` define the GTK application, create a 1280x720 Flutter window, attach the Flutter view, and register plugins.
-- `flutter/CMakeLists.txt` connects CMake to Flutter's Linux engine and tool backend; it is tool-managed.
-- `flutter/generated_plugin_registrant.*` and `generated_plugins.cmake` are generated plugin-registration files. No plugins are currently registered.
+- `train_model()` requires `mouse_data.json` and at least 10 extracted samples.
+- Trains an `IsolationForest` with 500 estimators, 10% contamination, and `random_state=42`.
+- Saves the model to `mouse_model.pkl` with `joblib`.
+- `verify_current_session(threshold=70.0)` predicts each current feature window and returns a match percentage based on predictions classified as normal (`1`).
+- A session is considered authorized when its match percentage is at least the threshold.
 
-### Windows: `twaq/windows/`
+### `twayq/__pycache__/keyboard_biometrics.py`
 
-- `CMakeLists.txt` configures the Windows project, build modes, C++17 settings, Flutter engine, installation bundle, and executable name `twaq`.
-- `runner/CMakeLists.txt` configures the native Windows runner target.
-- `runner/main.cpp` initializes COM, creates the Flutter project, creates a 1280x720 window titled `twaq`, and runs the Win32 message loop.
-- `runner/flutter_window.*` creates and manages the Flutter view controller, registers plugins, and forwards native messages.
-- `runner/win32_window.*` implement the window class, DPI scaling, theme handling, resizing, and message dispatch.
-- `runner/utils.*` attach a debug console, parse command-line arguments, and convert Windows UTF-16 arguments to UTF-8.
-- `runner/Runner.rc`, `resource.h`, the manifest, and `resources/app_icon.ico` define Windows resources and application metadata.
-- `flutter/CMakeLists.txt`, `generated_plugin_registrant.*`, and `generated_plugins.cmake` are Flutter-tool-managed build and plugin files. No plugins are currently registered.
+Defines `KeyboardAuthenticator`, which records and analyzes keyboard behavior.
 
-### Web: `twaq/web/`
+#### Recording
 
-- `index.html` is the browser entry document, Flutter bootstrap page, metadata, favicon link, and manifest link.
-- `manifest.json` defines the PWA name, theme colors, display mode, orientation, and icons.
-- `icons/` contains PWA icon assets; `favicon.png` is the browser favicon.
+- Uses `pynput.keyboard.Listener` to capture key press and release events.
+- Stores timestamp, action (`press` or `release`), and a normalized key name.
+- Supports regular characters and special keys.
+- `start_recording()` starts a clean session and prevents duplicate listeners.
+- `stop_recording(save_to_file=True)` appends events to `keyboard_data.json`.
 
-For web builds, the browser must be able to reach Flask and the Flask service must allow the browser origin through CORS.
+#### Feature extraction
 
-## The `twayq` Directory
+- `_extract_features()` sorts events and groups them into 5-second windows.
+- Windows with three or fewer events are ignored.
+- `_analyze_chunk()` calculates:
+  1. Average dwell time, from press to release for the same key.
+  2. Average flight time, from the previous release to the next press.
+  3. Keystroke count.
+- Pauses longer than 2 seconds are excluded from flight-time calculations.
+- Dwell times longer than 2 seconds are excluded.
 
-`twayq/` is not the Flutter application and is not an executable backend in the current repository. It contains only PyCharm/IntelliJ metadata:
+#### Training and verification
 
-- `.idea/misc.xml` selects a Python 3.11 SDK and Black formatter integration.
-- `.idea/modules.xml` registers the IDE module.
-- `.idea/twayq.iml` declares a Python module and excludes `.venv`.
-- `.idea/inspectionProfiles/Project_Default.xml` and `profiles_settings.xml` configure IDE inspections.
-- `.idea/.gitignore` excludes local IDE-generated files.
+- `train_model()` requires `keyboard_data.json` and at least five extracted samples.
+- Trains an `IsolationForest` with `contamination=0.1` and `random_state=42`.
+- Saves the model to `keyboard_model.pkl`.
+- `verify_current_session(threshold=70.0)` converts predictions classified as normal into a match percentage and compares it with the threshold.
 
-No `.py` files are tracked under `twayq/`, so this directory currently contains no Flask behavior.
+### `twayq/__pycache__/backend_api.py`
 
-## REST API Contract
+Creates and runs the Flask REST service.
 
-The contract below is inferred from the Flutter client and should be implemented by the Flask backend.
+#### Global state
 
-| Method | Endpoint | Purpose | Data expected by the client |
-| --- | --- | --- | --- |
-| `GET` | `/status` | Read live monitoring state | `mouse_perc`, `kb_perc`, `overall`, `status_msg`, `is_monitoring` |
-| `GET` | `/analytics` | Read charts and averages | `mouse_chart`, `kb_chart`, `stats` |
-| `GET` | `/history` | Read monitoring logs | Array items with `time`, `mouse`, `keyboard`, `overall`, `severity` |
-| `POST` | `/collect/start` | Start data collection | Successful `2xx` response |
-| `POST` | `/collect/stop` | Stop and save collection | Successful `2xx` response |
-| `POST` | `/train` | Start behavioral training | Successful `2xx` response |
-| `POST` | `/monitor/toggle` | Toggle live monitoring | Successful `2xx` response |
+- Creates `MouseAuthenticator` and `KeyboardAuthenticator` instances.
+- Maintains `status_data` with mouse percentage, keyboard percentage, overall score, status message, monitoring state, and collection state.
+- Maintains 20-item live history arrays and an in-memory list of up to 100 monitoring logs.
+- Enables CORS with `flask_cors.CORS(app)`.
 
-The `/analytics` `stats` object must contain `avg_mouse_speed`, `avg_angle`, `avg_typing_speed`, and `avg_dwell_time`. Percentage fields should be numeric JSON values and `is_monitoring` should be a JSON boolean.
+#### `normalize_percentage()`
+
+Converts a value to a float, clamps it to 0-100, rounds to two decimal places, and returns `0.0` for invalid values.
+
+#### `monitoring_loop()`
+
+Runs in a daemon thread while monitoring is enabled.
+
+- Starts both recorders.
+- Collects events for 4 seconds in 0.1-second intervals.
+- Treats a device as active when its session contains more than two events.
+- Stops recording without saving the monitoring window.
+- Verifies mouse and keyboard sessions using a 70% threshold.
+- Uses the active device score when only one device has activity.
+- When both devices are active, uses the higher score as `overall` and marks the lower score as a warning when it is below 50%.
+- Updates live status and keeps the last 20 score values in memory.
+- Adds active windows to the history list and caps it at 100 entries.
+
+#### Flask routes
+
+| Method | Route | Behavior |
+| --- | --- | --- |
+| `GET` | `/status` | Returns the complete `status_data` object. |
+| `POST` | `/collect/start` | Sets collection active and starts both recorders. |
+| `POST` | `/collect/stop` | Stops both recorders and saves their events to JSON files. |
+| `POST` | `/train` | Trains both anomaly-detection models and returns their messages. |
+| `POST` | `/monitor/toggle` | Starts or stops the monitoring thread and resets scores on stop. |
+| `GET` | `/history` | Returns the in-memory monitoring history list. |
+| `GET` | `/analytics` | Reads saved JSON data, extracts features, computes charts and averages, and returns them. |
+
+The `/analytics` route calculates mouse speed and angle statistics from `mouse_data.json`, and keyboard typing speed and dwell time from `keyboard_data.json`. Chart arrays are limited to the latest 50 values.
+
+The backend starts with `debug=False` on port `5000` when `backend_api.py` is executed directly.
+
+### `twayq/__pycache__/main.py`
+
+Provides a command-line backend runner independent of Flask.
+
+It creates both authenticators and offers three interactive modes:
+
+1. **Collection mode:** records mouse and keyboard input in five-minute cycles and saves each cycle automatically. `Ctrl+C` stops and saves the current session.
+2. **Training mode:** trains both models and prints their result messages.
+3. **Monitoring mode:** records five-second windows, verifies both signatures using a 70% threshold, chooses the stronger score when both devices are active, and prints a timestamped security status. `Ctrl+C` stops the loop.
+
+This file is a standalone console alternative to the Flask API. The Flutter application does not call it directly.
+
+## `twayq/.idea/` Metadata
+
+These files configure the Python IDE and do not implement application behavior.
+
+- `.idea/misc.xml`: selects a Python 3.11 SDK and Black formatter integration.
+- `.idea/modules.xml`: registers the IDE module.
+- `.idea/twayq.iml`: declares a Python module and excludes `.venv`.
+- `.idea/workspace.xml`: local workspace layout and IDE state.
+- `.idea/inspectionProfiles/Project_Default.xml`: project inspection profile.
+- `.idea/inspectionProfiles/profiles_settings.xml`: inspection-profile settings.
+- `.idea/.gitignore`: excludes additional local IDE files.
+
+## Flutter Platform Files
+
+The native directories are host wrappers around the Dart application. They do not contain the biometric analysis.
+
+### Android
+
+`android/settings.gradle.kts` loads Flutter's Gradle plugins and includes the app module. `android/build.gradle.kts` configures repositories, build-directory relocation, and cleaning. `android/app/build.gradle.kts` defines the Android module, Java/Kotlin 17, namespace and application ID `com.example.twaq`, Flutter SDK values, and build types. `MainActivity.kt` hosts Flutter, the manifests define Android application and launcher metadata, resource XML files define launch themes, and Gradle wrapper files define the Gradle distribution.
+
+### iOS
+
+`ios/Runner/AppDelegate.swift` starts the native iOS application. `Info.plist` defines bundle metadata, orientations, launch configuration, and input support. Storyboards define launch and main resources, `Assets.xcassets` contains icons and launch assets, Xcode project/workspace files define native targets, and Flutter xcconfig files provide build settings. `RunnerTests.swift` is the native test placeholder.
+
+### macOS
+
+`macos/Runner/AppDelegate.swift` is the application delegate and `MainFlutterWindow.swift` creates the Flutter window. `Info.plist`, `MainMenu.xib`, xcconfig files, entitlements, asset catalogs, Xcode project/workspace files, generated plugin registration, and the native test target provide macOS packaging and build integration.
+
+### Linux
+
+`linux/CMakeLists.txt` configures the GTK application, binary name `twaq`, application ID `com.example.twaq`, C++14 settings, dependencies, and installation bundle. The runner sources create a GTK window and attach the Flutter view. Files under `linux/flutter/` connect CMake to Flutter's generated engine and plugin build; generated files should not be edited manually.
+
+### Windows
+
+`windows/CMakeLists.txt` configures the Windows build, C++17 settings, Flutter engine, packaging, and executable name `twaq`. `runner/main.cpp` initializes COM, creates a 1280x720 Flutter window, and runs the Win32 message loop. `flutter_window.*` manages the Flutter controller, `win32_window.*` handles the native window and DPI behavior, and `utils.*` manages console output and command-line conversion. Resource files define the icon, manifest, and Windows identifiers. Flutter plugin files are generated and currently contain no registered plugins.
+
+### Web
+
+`web/index.html` is the browser entry document and Flutter bootstrap page. `manifest.json` defines PWA metadata, theme colors, orientation, and icons. The web client still uses the configured local API address, so browser access and Flask CORS configuration are required.
+
+## Dependencies
+
+### Flutter
+
+The Flutter project requires Dart `^3.10.7` and declares `fl_chart` for charts, `http` for API calls, `flutter_lints` for analysis, and `flutter_test` for tests. The current `pubspec.yaml` places `http` under `dev_dependencies` even though runtime files import it; it should normally be a regular dependency.
+
+### Python
+
+The backend imports:
+
+- `Flask` and `flask-cors` for the REST service and cross-origin requests.
+- `pynput` for mouse and keyboard event listeners.
+- `numpy` for mouse statistics.
+- `scikit-learn` for `IsolationForest`.
+- `joblib` for model serialization.
+
+No `requirements.txt` is currently present, so the exact pinned Python versions are not defined by the repository.
 
 ## Installation and Running
 
-### Flutter Frontend
+### Flutter frontend
 
 ```powershell
 cd twaq
@@ -202,35 +315,35 @@ flutter devices
 flutter run -d windows
 ```
 
-Replace `windows` with a device identifier returned by `flutter devices`, such as `chrome` or an Android device ID. Build Windows with:
+Replace `windows` with a device identifier returned by `flutter devices`. Build Windows with:
 
 ```powershell
-cd twaq
 flutter build windows
 ```
 
-### Python/Flask Backend
+### Flask backend
 
-The backend files are absent from this repository. After obtaining `backend_api.py` and its official `requirements.txt`:
+Because the current Python source files are inside `twayq/__pycache__/`, run from that directory for the current layout:
 
 ```powershell
-cd path\to\backend
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
+cd twayq\__pycache__
+python -m venv ..\.venv
+..\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
+python -m pip install Flask flask-cors pynput numpy scikit-learn joblib
 python backend_api.py
 ```
 
-The expected address is `http://127.0.0.1:5000`.
+The service listens on `http://127.0.0.1:5000`.
 
-### Connecting Both Components
+Before monitoring, use `POST /collect/start` to gather enough data, `POST /collect/stop` to save it, and `POST /train` to create `mouse_model.pkl` and `keyboard_model.pkl`. The backend needs sufficient samples: at least 10 mouse feature windows and at least 5 keyboard feature windows.
+
+### Connecting Flutter to Flask
 
 1. Start Flask on port `5000`.
-2. Verify `GET http://127.0.0.1:5000/status` returns HTTP 200 and valid JSON.
+2. Verify `GET http://127.0.0.1:5000/status` returns HTTP 200.
 3. Start Flutter.
-4. The dashboard polls `/status` every 4 seconds, analytics polls `/analytics` every 10 seconds, and history polls `/history` every 3 seconds.
-5. Collection, training, and monitoring controls send the documented `POST` requests.
+4. Use the dashboard controls to collect data, stop and save it, train models, and enable monitoring.
 
 PowerShell health check:
 
@@ -238,11 +351,22 @@ PowerShell health check:
 Invoke-RestMethod http://127.0.0.1:5000/status
 ```
 
-For an Android emulator, the host machine is commonly available at `10.0.2.2`. For a physical device, use the computer's LAN IP, configure Flask to accept the connection, and allow the port through the firewall if needed. For web, configure CORS in Flask.
+On an Android emulator, `127.0.0.1` normally points to the emulator itself; use `10.0.2.2` for the host machine. On a physical device, use the computer's LAN IP and configure Flask/firewall access. For web builds, configure Flask CORS and use an address reachable by the browser.
 
-## Validation and Limitations
+## Generated and Runtime Files
 
-Run the available Flutter checks:
+When the backend runs, it may create:
+
+- `mouse_data.json`: recorded mouse events.
+- `keyboard_data.json`: recorded keyboard events.
+- `mouse_model.pkl`: trained mouse `IsolationForest`.
+- `keyboard_model.pkl`: trained keyboard `IsolationForest`.
+
+These files can contain sensitive behavioral and input metadata. Protect them appropriately and do not commit them to a public repository.
+
+## Validation
+
+Run the Flutter checks from `twaq/`:
 
 ```powershell
 cd twaq
@@ -250,59 +374,20 @@ flutter analyze
 flutter test
 ```
 
-Known limitations:
-
-- **Connection error:** verify that Flask is running on port `5000` and that the selected Flutter target can reach it.
-- **Empty charts or history:** start collection or monitoring and verify that the backend returns the documented JSON fields.
-- **Permission error:** grant the backend permission to observe mouse and keyboard events.
-- **Android connection failure:** use `10.0.2.2` for the standard Android emulator or the computer's LAN IP for a physical device.
-- **Dependency resolution failure:** run `flutter clean` followed by `flutter pub get` inside `twaq/`.
-- **Unexpected status values:** confirm that percentages are numeric JSON values and that `is_monitoring` is a JSON boolean.
-
-### Current Limitations
-
-- The Flask implementation and Python dependency manifest are absent from the current workspace.
-- The Flutter client duplicates the API base URL in several Dart files.
-- The `http` package is currently listed under `dev_dependencies` even though application code imports it; it should normally be a regular runtime dependency.
-- The repository does not currently include a license file.
-
-## التوثيق العربي المختصر
-
-### نبذة
-
-مشروع **Twaq** عبارة عن لوحة تحكم Flutter لتحليل البصمة السلوكية للماوس ولوحة المفاتيح، مع خلفية Python/Flask تجمع الأحداث وتحللها وتعيد مؤشرات الثقة.
-
-### التشغيل
-
-تشغيل الواجهة:
+For the backend, verify imports and route availability from the directory containing the Python sources:
 
 ```powershell
-cd twaq
-flutter pub get
-flutter run -d windows
+python -m py_compile backend_api.py mouse_biometrics.py keyboard_biometrics.py main.py
 ```
 
-تشغيل الخلفية بعد توفير ملفاتها:
+## Known Limitations
 
-```powershell
-cd path\to\backend
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
-python backend_api.py
-```
-
-يجب أن تعمل الخلفية على `http://127.0.0.1:5000`.
-
-### الربط
-
-تستخدم الواجهة المسارات التالية:
-
-- `GET /status` للحالة الحالية.
-- `GET /analytics` للتحليلات والمخططات.
-- `GET /history` للسجل.
-- `POST /collect/start` و`POST /collect/stop` لجمع البيانات.
-- `POST /train` للتدريب.
-- `POST /monitor/toggle` لتشغيل أو إيقاف المراقبة.
-
-> ملفات Flask و`requirements.txt` غير موجودة حاليًا في المستودع، لذلك يلزم إضافتها قبل تشغيل النظام كاملًا. في Android Emulator استخدم غالبًا `10.0.2.2` بدل `127.0.0.1`.
+- Python source files are currently stored under `__pycache__/`, which is unconventional and may be ignored by Git tooling.
+- No Python dependency manifest is present.
+- The client repeats the API base URL in several Dart files.
+- The Flutter package and native identifiers still use `twaq`; this README uses the product name **Behavior** without changing code.
+- The analytics user selector is not connected to backend filtering.
+- The notification preference is not persisted.
+- The backend stores state in memory and local JSON/model files rather than a database.
+- The monitoring thread and shared state have no explicit synchronization mechanism.
+- No license file is included.
