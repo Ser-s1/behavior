@@ -1,6 +1,6 @@
-# Behavior
+# Twaq | Behavioral Biometrics Dashboard
 
-Behavior is a Flutter dashboard for behavioral biometrics. It displays mouse and keyboard behavior scores, trust levels, analytics, monitoring history, and security notifications. The Flutter client is designed to communicate with a Python/Flask REST API.
+Twaq is a Flutter dashboard for monitoring and analyzing mouse and keyboard behavioral biometrics. It is designed to work with a Python/Flask service that collects input events, analyzes behavioral patterns, and exposes trust indicators through a REST API.
 
 > **Repository status:** This repository currently contains the Flutter client and its API call sites. It does not contain the Python/Flask implementation, `backend_api.py`, or `requirements.txt`. The backend must be supplied separately before the complete system can run end to end.
 
@@ -252,10 +252,57 @@ flutter test
 
 Known limitations:
 
-- The Flask implementation and Python dependency manifest are not in the current Git repository.
-- The Flutter package and native platform identifiers still use `twaq`; this README uses the requested product name **Behavior** without changing code or platform configuration.
-- The API base URL is duplicated across Dart files.
-- The `http` runtime package is placed under `dev_dependencies`.
-- The notification preference is not persisted.
-- The analytics user selector does not filter backend requests.
-- No license file is included.
+- **Connection error:** verify that Flask is running on port `5000` and that the selected Flutter target can reach it.
+- **Empty charts or history:** start collection or monitoring and verify that the backend returns the documented JSON fields.
+- **Permission error:** grant the backend permission to observe mouse and keyboard events.
+- **Android connection failure:** use `10.0.2.2` for the standard Android emulator or the computer's LAN IP for a physical device.
+- **Dependency resolution failure:** run `flutter clean` followed by `flutter pub get` inside `twaq/`.
+- **Unexpected status values:** confirm that percentages are numeric JSON values and that `is_monitoring` is a JSON boolean.
+
+### Current Limitations
+
+- The Flask implementation and Python dependency manifest are absent from the current workspace.
+- The Flutter client duplicates the API base URL in several Dart files.
+- The `http` package is currently listed under `dev_dependencies` even though application code imports it; it should normally be a regular runtime dependency.
+- The repository does not currently include a license file.
+
+## التوثيق العربي المختصر
+
+### نبذة
+
+مشروع **Twaq** عبارة عن لوحة تحكم Flutter لتحليل البصمة السلوكية للماوس ولوحة المفاتيح، مع خلفية Python/Flask تجمع الأحداث وتحللها وتعيد مؤشرات الثقة.
+
+### التشغيل
+
+تشغيل الواجهة:
+
+```powershell
+cd twaq
+flutter pub get
+flutter run -d windows
+```
+
+تشغيل الخلفية بعد توفير ملفاتها:
+
+```powershell
+cd path\to\backend
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+python backend_api.py
+```
+
+يجب أن تعمل الخلفية على `http://127.0.0.1:5000`.
+
+### الربط
+
+تستخدم الواجهة المسارات التالية:
+
+- `GET /status` للحالة الحالية.
+- `GET /analytics` للتحليلات والمخططات.
+- `GET /history` للسجل.
+- `POST /collect/start` و`POST /collect/stop` لجمع البيانات.
+- `POST /train` للتدريب.
+- `POST /monitor/toggle` لتشغيل أو إيقاف المراقبة.
+
+> ملفات Flask و`requirements.txt` غير موجودة حاليًا في المستودع، لذلك يلزم إضافتها قبل تشغيل النظام كاملًا. في Android Emulator استخدم غالبًا `10.0.2.2` بدل `127.0.0.1`.
