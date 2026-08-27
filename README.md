@@ -196,11 +196,11 @@ Common problems:
 - The `http` package is currently listed under `dev_dependencies` even though application code imports it; it should normally be a regular runtime dependency.
 - The repository does not currently include a license file.
 
-## التوثيق العربي المختصر
+##
 
 ### نبذة
 
-مشروع **Twaq** عبارة عن لوحة تحكم Flutter لتحليل البصمة السلوكية للماوس ولوحة المفاتيح، مع خلفية Python/Flask تجمع الأحداث وتحللها وتعيد مؤشرات الثقة.
+مشروع **Behavior** عبارة عن لوحة تحكم Flutter لتحليل البصمة السلوكية للماوس ولوحة المفاتيح، مع خلفية Python/Flask تجمع الأحداث وتحللها وتعيد مؤشرات الثقة.
 
 ### التشغيل
 
