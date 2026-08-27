@@ -1,6 +1,6 @@
-# Twaq | Behavioral Biometrics Dashboard
+# Behavior | Behavioral Biometrics Dashboard
 
-Twaq is a Flutter dashboard for monitoring and analyzing mouse and keyboard behavioral biometrics. It is designed to work with a Python/Flask service that collects input events, analyzes behavioral patterns, and exposes trust indicators through a REST API.
+Behavior is a Flutter dashboard for monitoring and analyzing mouse and keyboard behavioral biometrics. It is designed to work with a Python/Flask service that collects input events, analyzes behavioral patterns, and exposes trust indicators through a REST API.
 
 > **Repository status:** The current workspace contains the Flutter client and its backend call sites, but it does not currently include the Flask source file (`backend_api.py`) or a Python dependency manifest (`requirements.txt`). The backend must be supplied separately before the complete system can run end to end.
 
